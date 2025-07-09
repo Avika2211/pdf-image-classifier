@@ -3,11 +3,13 @@ import os
 import tempfile
 import zipfile
 import io
+from datetime import datetime
 from PIL import Image
 import pandas as pd
 from figure_extractor import PDFFigureExtractor
 from ai_classifier import AIFigureClassifier
 from pdf_downloader import PDFDownloader
+from report_generator import PDFReportGenerator
 from utils import create_download_link, get_file_size, format_figure_type, get_figure_type_emoji
 
 # Initialize session state
@@ -17,6 +19,8 @@ if 'classification_results' not in st.session_state:
     st.session_state.classification_results = []
 if 'processing_complete' not in st.session_state:
     st.session_state.processing_complete = False
+if 'source_info' not in st.session_state:
+    st.session_state.source_info = "PDF Document"
 
 def main():
     st.set_page_config(
@@ -128,6 +132,12 @@ def process_pdf(uploaded_file, from_url=False, url=None):
         st.session_state.classification_results = classification_results
         st.session_state.processing_complete = True
         
+        # Store source information
+        if from_url:
+            st.session_state.source_info = f"PDF from URL: {url}"
+        else:
+            st.session_state.source_info = f"Uploaded PDF: {uploaded_file.name if hasattr(uploaded_file, 'name') else 'Unknown'}"
+        
         # Clean up temporary file
         os.unlink(tmp_file_path)
         
@@ -214,6 +224,7 @@ def display_welcome_screen():
     - 🔍 Classify figure types automatically
     - 📊 View comprehensive analysis
     - 💾 Download individual figures or all as ZIP
+    - 📄 Generate detailed PDF analysis reports
     
     ### Supported Figure Types (AI-Powered Classification):
     - **Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
@@ -239,6 +250,7 @@ def display_welcome_screen():
     - View results with AI-powered classifications
     - See detailed descriptions and confidence scores
     - Download individual figures or all as ZIP
+    - Generate comprehensive PDF analysis report
     
     Get started by uploading a PDF file!
     """)
@@ -272,16 +284,24 @@ def display_results():
     df_types = pd.DataFrame(list(type_counts.items()), columns=['Type', 'Count'])
     st.bar_chart(df_types.set_index('Type'))
     
-    # Download all figures button
+    # Download options
     st.subheader("Download Options")
-    if st.button("📦 Download All Figures as ZIP"):
-        zip_buffer = create_zip_download(figures, classifications)
-        st.download_button(
-            label="Download ZIP",
-            data=zip_buffer,
-            file_name="extracted_figures.zip",
-            mime="application/zip"
-        )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📦 Download All Figures as ZIP"):
+            zip_buffer = create_zip_download(figures, classifications)
+            st.download_button(
+                label="Download ZIP",
+                data=zip_buffer,
+                file_name="extracted_figures.zip",
+                mime="application/zip"
+            )
+    
+    with col2:
+        if st.button("📄 Generate Analysis Report"):
+            generate_pdf_report(figures, classifications)
     
     # Display individual figures
     st.header("🖼️ Extracted Figures")
@@ -333,7 +353,7 @@ def display_figure_card(figure_data, classification_result):
         st.image(
             figure_data['image'],
             caption=f"Page {classification_result['page']} - {emoji} {formatted_type}",
-            use_column_width=True
+            use_container_width=True
         )
         
         # Figure details with enhanced information
@@ -402,6 +422,59 @@ def create_zip_download(figures, classifications):
     
     zip_buffer.seek(0)
     return zip_buffer
+
+def generate_pdf_report(figures, classifications):
+    """Generate and provide download for PDF analysis report."""
+    try:
+        # Show progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("Generating comprehensive PDF report...")
+        progress_bar.progress(25)
+        
+        # Initialize report generator
+        report_generator = PDFReportGenerator()
+        
+        progress_bar.progress(50)
+        status_text.text("Creating report content...")
+        
+        # Generate report
+        source_info = st.session_state.get('source_info', 'PDF Document')
+        pdf_buffer = report_generator.create_summary_buffer(figures, classifications, source_info)
+        
+        progress_bar.progress(75)
+        status_text.text("Finalizing report...")
+        
+        # Generate filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"figure_analysis_report_{timestamp}.pdf"
+        
+        progress_bar.progress(100)
+        status_text.text("Report ready for download!")
+        
+        # Provide download button
+        st.download_button(
+            label="📄 Download Analysis Report (PDF)",
+            data=pdf_buffer,
+            file_name=filename,
+            mime="application/pdf",
+            help="Complete analysis report with figure thumbnails, statistics, and detailed descriptions"
+        )
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success("PDF report generated successfully! Click the download button above.")
+        
+    except Exception as e:
+        st.error(f"Error generating PDF report: {str(e)}")
+        # Clear progress indicators on error
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
 
 if __name__ == "__main__":
     main()

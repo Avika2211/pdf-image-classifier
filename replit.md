@@ -73,6 +73,16 @@ Feature request: URL-based PDF processing in addition to file upload.
 - **User Experience**: Progress indication, file size display, AI classification feedback
 - **Features**: PDF URL validation, enhanced figure cards with AI descriptions
 
+### PDF Report Generation (`report_generator.py`)
+- **Purpose**: Generate comprehensive PDF analysis reports
+- **Technology**: ReportLab for PDF creation with professional layouts
+- **Key Features**:
+  - Executive summary with key statistics
+  - Figure type distribution tables
+  - Confidence score analysis
+  - Individual figure thumbnails with descriptions
+  - Professional formatting with charts and tables
+
 ### Utilities (`utils.py`)
 - **File Operations**: File size calculation, download link generation
 - **Image Processing**: Resize for display, validation, metadata extraction
@@ -100,6 +110,7 @@ Feature request: URL-based PDF processing in addition to file upload.
 - **google-genai**: Google Gemini AI integration
 - **requests**: HTTP client for URL downloads
 - **urllib3**: URL handling utilities
+- **reportlab**: PDF report generation
 - **numpy**: Numerical computing
 
 ### System Dependencies
@@ -170,8 +181,16 @@ Feature request: URL-based PDF processing in addition to file upload.
   - Improved visual indicators for confidence levels
   - Enhanced welcome screen with dual input method instructions
 
+- **PDF Report Generation**: Added comprehensive analysis report feature
+  - Professional PDF reports with executive summary
+  - Statistical analysis and confidence distribution
+  - Figure type distribution with examples
+  - Individual figure thumbnails with detailed descriptions
+  - Downloadable reports with timestamps
+
 ### Technical Improvements
 - **Free Solution**: Uses Google Gemini free tier (1500 requests/day)
 - **Error Handling**: Comprehensive error handling for URL downloads and AI classification
 - **User Experience**: Progress indicators for both file upload and URL processing
 - **Memory Management**: Proper cleanup of temporary files for URL downloads
+- **Professional Reports**: Comprehensive PDF reports with executive summaries and detailed analysis
