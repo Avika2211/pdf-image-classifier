@@ -565,8 +565,6 @@ def generate_pdf_report(figures, classifications):
             if status_text is not None:
                 status_text.empty()
         except:
-            pass
-
-
-if __name__ == "__main__":
+            pass 
+            
     main()
