@@ -7,6 +7,8 @@ This is a Streamlit-based web application that automatically extracts and classi
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Cost preference: Free solutions preferred over paid APIs.
+Feature request: URL-based PDF processing in addition to file upload.
 
 ## System Architecture
 
@@ -38,41 +40,55 @@ Preferred communication style: Simple, everyday language.
 - **Technology**: PyMuPDF (fitz library)
 - **Key Features**:
   - Page-by-page image extraction
+  - Vector graphics extraction
   - Image size filtering (minimum 50x50 pixels)
   - Format conversion (CMYK to RGB)
   - PIL Image integration
 
-### Figure Classification (`figure_classifier.py`)
-- **Purpose**: Classify extracted figures into categories
-- **Approach**: Hybrid rule-based and feature-based classification
-- **Features Extracted**:
-  - Aspect ratio, brightness, contrast
-  - Edge density, color diversity
-  - Text ratio, line density
-  - Shape analysis (circles, rectangles)
-  - Symmetry analysis
-  - Color statistics (saturation, hue variance)
+### PDF Download (`pdf_downloader.py`)
+- **Purpose**: Download PDF files from URLs
+- **Technology**: Requests library with proper headers
+- **Key Features**:
+  - URL validation and file type checking
+  - Progress indication during download
+  - File size limits (100MB max)
+  - Proper cleanup of temporary files
+
+### AI Figure Classification (`ai_classifier.py`)
+- **Purpose**: Classify extracted figures into categories using AI
+- **Approach**: Google Gemini AI-powered visual classification
+- **Technology**: Google Gemini 2.0 Flash (Free tier)
+- **Features**:
+  - Comprehensive figure type detection (20+ categories)
+  - High accuracy AI-powered classification
+  - Detailed descriptions and reasoning
+  - Confidence scoring
+  - Support for charts, diagrams, images, tables, maps, etc.
 
 ### Web Interface (`app.py`)
 - **Framework**: Streamlit
-- **Layout**: Wide layout with sidebar for controls
+- **Layout**: Wide layout with tabbed sidebar for dual input methods
+- **Input Methods**: File upload + URL download support
 - **Session Management**: Persistent state for extracted figures and results
-- **User Experience**: Progress indication, file size display, batch processing
+- **User Experience**: Progress indication, file size display, AI classification feedback
+- **Features**: PDF URL validation, enhanced figure cards with AI descriptions
 
 ### Utilities (`utils.py`)
 - **File Operations**: File size calculation, download link generation
 - **Image Processing**: Resize for display, validation, metadata extraction
+- **Display Functions**: Enhanced emoji mapping and figure type formatting for 20+ categories
 - **Helper Functions**: Support for main application workflow
 
 ## Data Flow
 
-1. **Input**: User uploads PDF file through Streamlit interface
-2. **Extraction**: PyMuPDF processes PDF, extracts embedded images
-3. **Filtering**: Images filtered by size and format requirements
-4. **Classification**: Each image processed through feature extraction and classification
-5. **Storage**: Results stored in Streamlit session state
-6. **Display**: Processed figures displayed with classification results
-7. **Export**: Users can download individual figures or batch results
+1. **Input**: User uploads PDF file or provides URL through Streamlit interface
+2. **Download**: If URL provided, PDF downloaded via PDFDownloader
+3. **Extraction**: PyMuPDF processes PDF, extracts embedded images
+4. **Filtering**: Images filtered by size and format requirements
+5. **AI Classification**: Each image analyzed using Google Gemini AI
+6. **Storage**: Results stored in Streamlit session state with detailed metadata
+7. **Display**: Processed figures displayed with AI classifications, descriptions, and reasoning
+8. **Export**: Users can download individual figures or batch results
 
 ## External Dependencies
 
@@ -81,8 +97,9 @@ Preferred communication style: Simple, everyday language.
 - **PyMuPDF (fitz)**: PDF processing and image extraction
 - **PIL (Pillow)**: Image processing and manipulation
 - **pandas**: Data structure management
-- **opencv-python (cv2)**: Computer vision operations
-- **scikit-learn**: Machine learning utilities (StandardScaler, RandomForestClassifier)
+- **google-genai**: Google Gemini AI integration
+- **requests**: HTTP client for URL downloads
+- **urllib3**: URL handling utilities
 - **numpy**: Numerical computing
 
 ### System Dependencies
@@ -119,9 +136,10 @@ Preferred communication style: Simple, everyday language.
 - **Alternatives**: PDFPlumber, PyPDF2 (limited image extraction capabilities)
 
 ### Classification Approach
-- **Decision**: Rule-based classification with feature extraction
-- **Rationale**: Interpretable results, no need for large training datasets
-- **Future Enhancement**: Machine learning models can be integrated using the existing feature extraction framework
+- **Decision**: AI-powered classification using Google Gemini
+- **Rationale**: High accuracy, comprehensive figure type detection, detailed descriptions
+- **Technology**: Google Gemini 2.0 Flash (Free tier with 1500 requests/day)
+- **Benefits**: 20+ figure categories, natural language descriptions, reasoning explanation
 
 ### Web Framework Selection
 - **Decision**: Streamlit for rapid prototyping and deployment
@@ -129,6 +147,31 @@ Preferred communication style: Simple, everyday language.
 - **Trade-offs**: Limited customization compared to Flask/Django but faster development
 
 ### Image Processing Strategy
-- **Decision**: PIL for image manipulation with OpenCV for computer vision
-- **Rationale**: PIL for basic operations, OpenCV for advanced feature extraction
-- **Benefits**: Comprehensive image processing capabilities, good performance
+- **Decision**: PIL for image manipulation with AI for classification
+- **Rationale**: PIL for basic operations, Google Gemini AI for intelligent classification
+- **Benefits**: High accuracy classification, natural language descriptions, minimal local processing
+
+## Recent Changes (2025-07-09)
+
+### Major Architecture Updates
+- **AI Classification System**: Replaced rule-based classifier with Google Gemini AI
+  - Implemented comprehensive 20+ figure type detection
+  - Added detailed descriptions and reasoning for each classification
+  - Integrated confidence scoring with visual indicators
+  
+- **URL Upload Feature**: Added PDF processing from URLs
+  - Implemented PDFDownloader class for secure URL downloads
+  - Added URL validation and file type checking
+  - Created tabbed interface for file upload vs URL input
+  
+- **Enhanced User Interface**: 
+  - Updated figure cards with AI descriptions and reasoning
+  - Added expandable sections for classification details
+  - Improved visual indicators for confidence levels
+  - Enhanced welcome screen with dual input method instructions
+
+### Technical Improvements
+- **Free Solution**: Uses Google Gemini free tier (1500 requests/day)
+- **Error Handling**: Comprehensive error handling for URL downloads and AI classification
+- **User Experience**: Progress indicators for both file upload and URL processing
+- **Memory Management**: Proper cleanup of temporary files for URL downloads

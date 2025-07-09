@@ -6,8 +6,9 @@ import io
 from PIL import Image
 import pandas as pd
 from figure_extractor import PDFFigureExtractor
-from figure_classifier import FigureClassifier
-from utils import create_download_link, get_file_size
+from ai_classifier import AIFigureClassifier
+from pdf_downloader import PDFDownloader
+from utils import create_download_link, get_file_size, format_figure_type, get_figure_type_emoji
 
 # Initialize session state
 if 'extracted_figures' not in st.session_state:
@@ -29,29 +30,46 @@ def main():
     
     # Sidebar for file upload
     with st.sidebar:
-        st.header("Upload PDF")
-        uploaded_file = st.file_uploader(
-            "Choose a PDF file",
-            type=['pdf'],
-            help="Upload a PDF document to extract and classify figures"
-        )
+        st.header("PDF Input Options")
         
-        if uploaded_file is not None:
-            file_size = get_file_size(uploaded_file)
-            st.info(f"File size: {file_size}")
+        # Create tabs for different input methods
+        tab1, tab2 = st.tabs(["📁 Upload File", "🔗 From URL"])
+        
+        with tab1:
+            uploaded_file = st.file_uploader(
+                "Choose a PDF file",
+                type=['pdf'],
+                help="Upload a PDF document to extract and classify figures"
+            )
             
-            if st.button("Process PDF", type="primary"):
-                process_pdf(uploaded_file)
+            if uploaded_file is not None:
+                file_size = get_file_size(uploaded_file)
+                st.info(f"File size: {file_size}")
+                
+                if st.button("Process Uploaded PDF", type="primary"):
+                    process_pdf(uploaded_file)
+        
+        with tab2:
+            pdf_url = st.text_input(
+                "Enter PDF URL",
+                placeholder="https://example.com/document.pdf",
+                help="Enter the direct URL to a PDF file"
+            )
+            
+            if pdf_url:
+                if st.button("Validate URL", type="secondary"):
+                    validate_pdf_url(pdf_url)
+                
+                if st.button("Process PDF from URL", type="primary"):
+                    process_pdf_from_url(pdf_url)
     
     # Main content area
     if st.session_state.processing_complete and st.session_state.extracted_figures:
         display_results()
-    elif uploaded_file is None:
-        display_welcome_screen()
     else:
-        st.info("Upload a PDF file and click 'Process PDF' to get started.")
+        display_welcome_screen()
 
-def process_pdf(uploaded_file):
+def process_pdf(uploaded_file, from_url=False, url=None):
     """Process the uploaded PDF file and extract/classify figures."""
     try:
         # Create temporary file
@@ -61,7 +79,7 @@ def process_pdf(uploaded_file):
         
         # Initialize components
         extractor = PDFFigureExtractor()
-        classifier = FigureClassifier()
+        classifier = AIFigureClassifier()
         
         # Progress indicators
         progress_bar = st.progress(0)
@@ -81,14 +99,19 @@ def process_pdf(uploaded_file):
         progress_bar.progress(50)
         status_text.text(f"Found {len(extracted_figures)} figures. Classifying...")
         
-        # Classify figures
+        # Classify figures using AI
         classification_results = []
         for i, figure_data in enumerate(extracted_figures):
-            classification = classifier.classify_figure(figure_data['image'])
+            status_text.text(f"Classifying figure {i + 1}/{len(extracted_figures)} using AI...")
+            
+            classification_result = classifier.classify_figure(figure_data['image'])
             classification_results.append({
                 'figure_id': i,
-                'classification': classification,
-                'confidence': classifier.get_confidence(),
+                'classification': classification_result['classification'],
+                'confidence': classification_result['confidence'],
+                'description': classification_result['description'],
+                'details': classification_result.get('details', {}),
+                'reasoning': classification_result.get('reasoning', ''),
                 'page': figure_data['page'],
                 'bbox': figure_data['bbox']
             })
@@ -112,13 +135,73 @@ def process_pdf(uploaded_file):
         progress_bar.empty()
         status_text.empty()
         
-        st.success(f"Successfully extracted and classified {len(extracted_figures)} figures!")
+        source_info = f"from URL: {url}" if from_url else "from uploaded file"
+        st.success(f"Successfully extracted and classified {len(extracted_figures)} figures {source_info}!")
         st.rerun()
         
     except Exception as e:
         st.error(f"Error processing PDF: {str(e)}")
         if 'tmp_file_path' in locals():
-            os.unlink(tmp_file_path)
+            try:
+                os.unlink(tmp_file_path)
+            except:
+                pass
+
+def validate_pdf_url(url):
+    """Validate a PDF URL without downloading."""
+    try:
+        downloader = PDFDownloader()
+        file_info = downloader.get_file_info_from_url(url)
+        
+        if file_info is None:
+            st.error("Could not access the URL. Please check if it's valid and accessible.")
+            return
+        
+        if not file_info['is_pdf']:
+            st.error("The URL does not point to a PDF file.")
+            return
+        
+        # Display file information
+        st.success("✅ Valid PDF URL!")
+        st.info(f"""
+        **File Information:**
+        - Size: {file_info['file_size_mb']} MB
+        - Content Type: {file_info['content_type']}
+        - URL: {file_info['url']}
+        """)
+        
+    except Exception as e:
+        st.error(f"Error validating URL: {str(e)}")
+
+def process_pdf_from_url(url):
+    """Process a PDF file from a URL."""
+    try:
+        # Download PDF from URL
+        downloader = PDFDownloader()
+        tmp_file_path = downloader.download_pdf_from_url(url)
+        
+        # Create a mock uploaded file object for compatibility
+        with open(tmp_file_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        class MockUploadedFile:
+            def __init__(self, content, name):
+                self.content = content
+                self.name = name
+            
+            def getvalue(self):
+                return self.content
+        
+        mock_file = MockUploadedFile(pdf_content, url.split('/')[-1])
+        
+        # Process the downloaded PDF
+        process_pdf(mock_file, from_url=True, url=url)
+        
+        # Clean up
+        os.unlink(tmp_file_path)
+        
+    except Exception as e:
+        st.error(f"Error processing PDF from URL: {str(e)}")
 
 def display_welcome_screen():
     """Display welcome screen with instructions."""
@@ -132,19 +215,30 @@ def display_welcome_screen():
     - 📊 View comprehensive analysis
     - 💾 Download individual figures or all as ZIP
     
-    ### Supported Figure Types:
-    - **Charts**: Bar charts, pie charts, line graphs, scatter plots
-    - **Diagrams**: Flowcharts, scientific diagrams, technical drawings
-    - **Images**: Photographs, illustrations, screenshots
-    - **Tables**: Data tables, comparison charts
-    - **Maps**: Geographic maps, floor plans
+    ### Supported Figure Types (AI-Powered Classification):
+    - **Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
+    - **Diagrams**: Flowcharts, organizational charts, network diagrams, scientific diagrams
+    - **Technical**: Engineering diagrams, medical diagrams, floor plans
+    - **Images**: Photographs, screenshots, logos, infographics
+    - **Data**: Tables, timelines, and other data visualizations
+    - **Maps**: Geographic maps, spatial representations
     
     ### How to Use:
-    1. Click "Choose a PDF file" in the sidebar
+    **Option 1: Upload from Computer**
+    1. Click "Choose a PDF file" in the Upload File tab
     2. Select your PDF document
-    3. Click "Process PDF" to start extraction
-    4. View results with classifications and statistics
-    5. Download individual figures or all as ZIP
+    3. Click "Process Uploaded PDF" to start extraction
+    
+    **Option 2: Use URL**
+    1. Switch to the "From URL" tab
+    2. Enter the direct URL to a PDF file
+    3. Click "Validate URL" to check if it's valid
+    4. Click "Process PDF from URL" to start extraction
+    
+    **After Processing:**
+    - View results with AI-powered classifications
+    - See detailed descriptions and confidence scores
+    - Download individual figures or all as ZIP
     
     Get started by uploading a PDF file!
     """)
@@ -232,18 +326,36 @@ def display_results():
 def display_figure_card(figure_data, classification_result):
     """Display a single figure card with classification info."""
     with st.container():
+        # Get emoji and formatted name for the figure type
+        emoji = get_figure_type_emoji(classification_result['classification'])
+        formatted_type = format_figure_type(classification_result['classification'])
+        
         st.image(
             figure_data['image'],
-            caption=f"Page {classification_result['page']} - {classification_result['classification']}",
+            caption=f"Page {classification_result['page']} - {emoji} {formatted_type}",
             use_column_width=True
         )
         
-        # Figure details
+        # Figure details with enhanced information
+        confidence_color = "🟢" if classification_result['confidence'] > 0.8 else "🟡" if classification_result['confidence'] > 0.6 else "🔴"
+        
         st.markdown(f"""
-        **Type:** {classification_result['classification']}  
-        **Confidence:** {classification_result['confidence']:.1%}  
-        **Page:** {classification_result['page']}
+        **Type:** {emoji} {formatted_type}  
+        **Confidence:** {confidence_color} {classification_result['confidence']:.1%}  
+        **Page:** {classification_result['page']}  
+        **Description:** {classification_result.get('description', 'No description available')}
         """)
+        
+        # Show additional details if available
+        if classification_result.get('details'):
+            details = classification_result['details']
+            if details.get('visual_elements'):
+                st.caption(f"Visual Elements: {', '.join(details['visual_elements'])}")
+        
+        # Expandable section for AI reasoning
+        if classification_result.get('reasoning'):
+            with st.expander("AI Classification Reasoning"):
+                st.write(classification_result['reasoning'])
         
         # Download button for individual figure
         img_buffer = io.BytesIO()
