@@ -7,7 +7,7 @@ from datetime import datetime
 from PIL import Image
 import pandas as pd
 from figure_extractor import PDFFigureExtractor
-from ai_classifier import AIFigureClassifier
+from free_classifier import FreeFigureClassifier
 from pdf_downloader import PDFDownloader
 from report_generator import PDFReportGenerator
 from utils import create_download_link, get_file_size, format_figure_type, get_figure_type_emoji
@@ -83,7 +83,7 @@ def process_pdf(uploaded_file, from_url=False, url=None):
         
         # Initialize components
         extractor = PDFFigureExtractor()
-        classifier = AIFigureClassifier()
+        classifier = FreeFigureClassifier()
         
         # Progress indicators
         progress_bar = st.progress(0)
@@ -103,10 +103,10 @@ def process_pdf(uploaded_file, from_url=False, url=None):
         progress_bar.progress(50)
         status_text.text(f"Found {len(extracted_figures)} figures. Classifying...")
         
-        # Classify figures using AI
+        # Classify figures using free AI
         classification_results = []
         for i, figure_data in enumerate(extracted_figures):
-            status_text.text(f"Classifying figure {i + 1}/{len(extracted_figures)} using AI...")
+            status_text.text(f"Classifying figure {i + 1}/{len(extracted_figures)} using free AI...")
             
             classification_result = classifier.classify_figure(figure_data['image'])
             classification_results.append({
@@ -226,7 +226,7 @@ def display_welcome_screen():
     - 💾 Download individual figures or all as ZIP
     - 📄 Generate detailed PDF analysis reports
     
-    ### Supported Figure Types (AI-Powered Classification):
+    ### Supported Figure Types (Free AI-Powered Classification):
     - **Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
     - **Diagrams**: Flowcharts, organizational charts, network diagrams, scientific diagrams
     - **Technical**: Engineering diagrams, medical diagrams, floor plans
@@ -247,7 +247,7 @@ def display_welcome_screen():
     4. Click "Process PDF from URL" to start extraction
     
     **After Processing:**
-    - View results with AI-powered classifications
+    - View results with free AI-powered classifications
     - See detailed descriptions and confidence scores
     - Download individual figures or all as ZIP
     - Generate comprehensive PDF analysis report

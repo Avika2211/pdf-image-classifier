@@ -54,16 +54,17 @@ Feature request: URL-based PDF processing in addition to file upload.
   - File size limits (100MB max)
   - Proper cleanup of temporary files
 
-### AI Figure Classification (`ai_classifier.py`)
-- **Purpose**: Classify extracted figures into categories using AI
-- **Approach**: Google Gemini AI-powered visual classification
-- **Technology**: Google Gemini 2.0 Flash (Free tier)
+### Free Figure Classification (`free_classifier.py`)
+- **Purpose**: Classify extracted figures into categories using free AI
+- **Approach**: Hugging Face free inference API + local visual analysis
+- **Technology**: Hugging Face BLIP model (completely free, no limits)
 - **Features**:
   - Comprehensive figure type detection (20+ categories)
-  - High accuracy AI-powered classification
+  - Free AI-powered classification with no usage limits
   - Detailed descriptions and reasoning
   - Confidence scoring
   - Support for charts, diagrams, images, tables, maps, etc.
+  - Local fallback for reliable operation
 
 ### Web Interface (`app.py`)
 - **Framework**: Streamlit
@@ -147,10 +148,10 @@ Feature request: URL-based PDF processing in addition to file upload.
 - **Alternatives**: PDFPlumber, PyPDF2 (limited image extraction capabilities)
 
 ### Classification Approach
-- **Decision**: AI-powered classification using Google Gemini
-- **Rationale**: High accuracy, comprehensive figure type detection, detailed descriptions
-- **Technology**: Google Gemini 2.0 Flash (Free tier with 1500 requests/day)
-- **Benefits**: 20+ figure categories, natural language descriptions, reasoning explanation
+- **Decision**: AI-powered classification using Hugging Face free inference API
+- **Rationale**: Unlimited free usage, comprehensive figure type detection, detailed descriptions
+- **Technology**: Hugging Face BLIP model with local visual analysis fallback
+- **Benefits**: 20+ figure categories, no usage limits, natural language descriptions, reasoning explanation
 
 ### Web Framework Selection
 - **Decision**: Streamlit for rapid prototyping and deployment
@@ -165,10 +166,11 @@ Feature request: URL-based PDF processing in addition to file upload.
 ## Recent Changes (2025-07-09)
 
 ### Major Architecture Updates
-- **AI Classification System**: Replaced rule-based classifier with Google Gemini AI
+- **Free AI Classification System**: Evolved from rule-based to Gemini to Hugging Face free AI
   - Implemented comprehensive 20+ figure type detection
   - Added detailed descriptions and reasoning for each classification
   - Integrated confidence scoring with visual indicators
+  - Switched to unlimited free Hugging Face inference API
   
 - **URL Upload Feature**: Added PDF processing from URLs
   - Implemented PDFDownloader class for secure URL downloads
@@ -189,7 +191,7 @@ Feature request: URL-based PDF processing in addition to file upload.
   - Downloadable reports with timestamps
 
 ### Technical Improvements
-- **Free Solution**: Uses Google Gemini free tier (1500 requests/day)
+- **Free Solution**: Uses Hugging Face free inference API (unlimited usage)
 - **Error Handling**: Comprehensive error handling for URL downloads and AI classification
 - **User Experience**: Progress indicators for both file upload and URL processing
 - **Memory Management**: Proper cleanup of temporary files for URL downloads
