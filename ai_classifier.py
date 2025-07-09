@@ -6,22 +6,20 @@ import io
 import time
 import random
 import numpy as np
+import streamlit as st
 from PIL import Image
 from google import genai
 from google.genai import types
-from google.generativeai import GenerativeModel, configure
+from google.generativeai import GenerativeModel
 
-api_key = st.secrets["google_ai"]["api_key"]
-configure(api_key=api_key)
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self.client = genai.Client(api_key=st.secrets["google_ai"]["api_key"])
         self.confidence_score = 0.0
-        
-        # Define comprehensive figure categories
+
         self.figure_categories = {
             "bar_chart": "Bar Chart - Shows data using rectangular bars",
             "pie_chart": "Pie Chart - Circular chart showing proportions",
@@ -48,50 +46,35 @@ class AIFigureClassifier:
             "diagram_other": "Other Diagram - General diagram or illustration",
             "unknown": "Unknown - Cannot determine figure type"
         }
-    
+
     def classify_figure(self, image):
-        """
-        Classify a figure using Google Gemini AI with retry logic.
-        
-        Args:
-            image (PIL.Image): The image to classify
-            
-        Returns:
-            dict: Classification results with type, confidence, and description
-        """
         max_retries = 3
         base_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
-                # Convert PIL image to bytes
                 img_buffer = io.BytesIO()
                 image.save(img_buffer, format='PNG')
                 img_buffer.seek(0)
                 image_bytes = img_buffer.read()
-                
-                # Create the classification prompt
+
                 prompt = self._create_classification_prompt()
-                
-                # Call Gemini API
+
                 response = self.client.models.generate_content(
                     model="gemini-2.0-flash-exp",
                     contents=[
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type="image/png",
-                        ),
+                        types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
                         prompt
                     ],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                     ),
                 )
-                
+
                 if response.text:
                     result = json.loads(response.text)
                     self.confidence_score = result.get('confidence', 0.5)
-                    
+
                     return {
                         'classification': result.get('type', 'unknown'),
                         'confidence': self.confidence_score,
@@ -101,15 +84,13 @@ class AIFigureClassifier:
                     }
                 else:
                     return self._fallback_classification(image)
-                    
+
             except Exception as e:
                 error_msg = str(e)
                 self.logger.error(f"AI classification attempt {attempt + 1} failed: {error_msg}")
-                
-                # Check if it's a rate limit error
+
                 if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                     if attempt < max_retries - 1:
-                        # Exponential backoff with jitter
                         delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
                         self.logger.info(f"Rate limit hit, waiting {delay:.2f} seconds before retry...")
                         time.sleep(delay)
@@ -118,19 +99,16 @@ class AIFigureClassifier:
                         self.logger.error("Rate limit exceeded, using fallback classification")
                         return self._fallback_classification(image)
                 else:
-                    # For other errors, use fallback immediately
                     return self._fallback_classification(image)
-        
+
         return self._fallback_classification(image)
-    
+
     def get_confidence(self):
-        """Get the confidence score of the last classification."""
         return self.confidence_score
-    
+
     def _create_classification_prompt(self):
-        """Create a comprehensive classification prompt."""
         categories_text = "\n".join([f"- {key}: {desc}" for key, desc in self.figure_categories.items()])
-        
+
         prompt = f"""
         Analyze this figure/image and classify it into one of the following categories. Be very precise and accurate.
 
@@ -167,23 +145,18 @@ class AIFigureClassifier:
         Be extremely accurate. If you're not sure between two categories, pick the most specific one that fits best.
         """
         return prompt
-    
+
     def _fallback_classification(self, image=None):
-        """Enhanced fallback classification with basic visual analysis."""
         try:
             if image is not None:
-                # Basic visual analysis
                 img_array = np.array(image)
                 height, width = img_array.shape[:2]
                 aspect_ratio = width / height
-                
-                # Simple heuristics based on visual properties
+
                 if len(img_array.shape) == 3:
-                    # Color image
                     mean_color = np.mean(img_array)
                     std_color = np.std(img_array)
-                    
-                    # Simple classification logic
+
                     if aspect_ratio > 2:
                         classification = 'timeline'
                         confidence = 0.6
@@ -204,7 +177,7 @@ class AIFigureClassifier:
                     classification = 'diagram_other'
                     confidence = 0.3
                     description = 'Grayscale content, likely diagram or text'
-                
+
                 self.confidence_score = confidence
                 return {
                     'classification': classification,
@@ -241,30 +214,19 @@ class AIFigureClassifier:
                 },
                 'reasoning': f'Fallback analysis failed: {str(e)}'
             }
-    
+
     def get_supported_categories(self):
-        """Get all supported figure categories."""
         return self.figure_categories
-    
+
     def batch_classify(self, images, progress_callback=None):
-        """
-        Classify multiple images in batch.
-        
-        Args:
-            images (list): List of PIL Images
-            progress_callback (function): Optional callback for progress updates
-            
-        Returns:
-            list: List of classification results
-        """
         results = []
         total = len(images)
-        
+
         for i, image in enumerate(images):
             result = self.classify_figure(image)
             results.append(result)
-            
+
             if progress_callback:
                 progress_callback(i + 1, total)
-        
+
         return results
