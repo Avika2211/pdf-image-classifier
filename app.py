@@ -22,7 +22,6 @@ if 'processing_complete' not in st.session_state:
 if 'source_info' not in st.session_state:
     st.session_state.source_info = "PDF Document"
 
-
 def main():
     st.set_page_config(
         page_title="PDF Figure Extraction & Classification Tool",
@@ -37,15 +36,10 @@ def main():
     # Sidebar for file upload
     with st.sidebar:
         st.header("PDF Input Options")
-
-        # Create tabs for different input methods
         tab1, tab2 = st.tabs(["📁 Upload File", "🔗 From URL"])
 
         with tab1:
-            uploaded_file = st.file_uploader(
-                "Choose a PDF file",
-                type=['pdf'],
-                help="Upload a PDF document to extract and classify figures")
+            uploaded_file = st.file_uploader("Choose a PDF file", type=['pdf'])
 
             if uploaded_file is not None:
                 file_size = get_file_size(uploaded_file)
@@ -55,10 +49,7 @@ def main():
                     process_pdf(uploaded_file)
 
         with tab2:
-            pdf_url = st.text_input(
-                "Enter PDF URL",
-                placeholder="https://example.com/document.pdf",
-                help="Enter the direct URL to a PDF file")
+            pdf_url = st.text_input("Enter PDF URL", placeholder="https://example.com/document.pdf")
 
             if pdf_url:
                 if st.button("Validate URL", type="secondary"):
@@ -67,31 +58,24 @@ def main():
                 if st.button("Process PDF from URL", type="primary"):
                     process_pdf_from_url(pdf_url)
 
-    # Main content area
+    # Main content
     if st.session_state.processing_complete and st.session_state.extracted_figures:
         display_results()
     else:
         display_welcome_screen()
 
-
 def process_pdf(uploaded_file, from_url=False, url=None):
-    """Process the uploaded PDF file and extract/classify figures."""
     try:
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False,
-                                         suffix='.pdf') as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
 
-        # Initialize components
         extractor = PDFFigureExtractor()
         classifier = AIFigureClassifier()
 
-        # Progress indicators
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Extract figures
         status_text.text("Extracting figures from PDF...")
         progress_bar.progress(25)
 
@@ -103,66 +87,38 @@ def process_pdf(uploaded_file, from_url=False, url=None):
             return
 
         progress_bar.progress(50)
-        status_text.text(
-            f"Found {len(extracted_figures)} figures. Classifying...")
+        status_text.text(f"Found {len(extracted_figures)} figures. Classifying...")
 
-        # Classify figures using AI with rate limiting protection
         classification_results = []
         for i, figure_data in enumerate(extracted_figures):
-            status_text.text(
-                f"Classifying figure {i + 1}/{len(extracted_figures)} using AI..."
-            )
-
-            classification_result = classifier.classify_figure(
-                figure_data['image'])
+            status_text.text(f"Classifying figure {i+1}/{len(extracted_figures)}...")
+            result = classifier.classify_figure(figure_data['image'])
             classification_results.append({
-                'figure_id':
-                i,
-                'classification':
-                classification_result['classification'],
-                'confidence':
-                classification_result['confidence'],
-                'description':
-                classification_result['description'],
-                'details':
-                classification_result.get('details', {}),
-                'reasoning':
-                classification_result.get('reasoning', ''),
-                'page':
-                figure_data['page'],
-                'bbox':
-                figure_data['bbox']
+                'figure_id': i,
+                'classification': result['classification'],
+                'confidence': result['confidence'],
+                'description': result['description'],
+                'details': result.get('details', {}),
+                'reasoning': result.get('reasoning', ''),
+                'page': figure_data['page'],
+                'bbox': figure_data['bbox']
             })
-
-            # Update progress
             progress = 50 + (i + 1) * 40 / len(extracted_figures)
             progress_bar.progress(int(progress))
 
         progress_bar.progress(100)
         status_text.text("Processing complete!")
 
-        # Store results in session state
         st.session_state.extracted_figures = extracted_figures
         st.session_state.classification_results = classification_results
         st.session_state.processing_complete = True
+        st.session_state.source_info = f"PDF from URL: {url}" if from_url else f"Uploaded PDF: {uploaded_file.name}"
 
-        # Store source information
-        if from_url:
-            st.session_state.source_info = f"PDF from URL: {url}"
-        else:
-            st.session_state.source_info = f"Uploaded PDF: {uploaded_file.name if hasattr(uploaded_file, 'name') else 'Unknown'}"
-
-        # Clean up temporary file
         os.unlink(tmp_file_path)
-
-        # Clear progress indicators
         progress_bar.empty()
         status_text.empty()
 
-        source_info = f"from URL: {url}" if from_url else "from uploaded file"
-        st.success(
-            f"Successfully extracted and classified {len(extracted_figures)} figures {source_info}!"
-        )
+        st.success(f"Successfully extracted and classified {len(extracted_figures)} figures!")
         st.rerun()
 
     except Exception as e:
@@ -173,119 +129,69 @@ def process_pdf(uploaded_file, from_url=False, url=None):
             except:
                 pass
 
-
 def validate_pdf_url(url):
-    """Validate a PDF URL without downloading."""
     try:
         downloader = PDFDownloader()
         file_info = downloader.get_file_info_from_url(url)
 
         if file_info is None:
-            st.error(
-                "Could not access the URL. Please check if it's valid and accessible."
-            )
+            st.error("Could not access the URL.")
             return
-
         if not file_info['is_pdf']:
             st.error("The URL does not point to a PDF file.")
             return
 
-        # Display file information
         st.success("✅ Valid PDF URL!")
         st.info(f"""
         **File Information:**
         - Size: {file_info['file_size_mb']} MB
-        - Content Type: {file_info['content_type']}
+        - Type: {file_info['content_type']}
         - URL: {file_info['url']}
         """)
 
     except Exception as e:
         st.error(f"Error validating URL: {str(e)}")
 
-
 def process_pdf_from_url(url):
-    """Process a PDF file from a URL."""
     try:
-        # Download PDF from URL
         downloader = PDFDownloader()
         tmp_file_path = downloader.download_pdf_from_url(url)
 
-        # Create a mock uploaded file object for compatibility
         with open(tmp_file_path, 'rb') as f:
-            pdf_content = f.read()
+            content = f.read()
 
         class MockUploadedFile:
-
             def __init__(self, content, name):
                 self.content = content
                 self.name = name
-
             def getvalue(self):
                 return self.content
 
-        mock_file = MockUploadedFile(pdf_content, url.split('/')[-1])
-
-        # Process the downloaded PDF
+        mock_file = MockUploadedFile(content, url.split('/')[-1])
         process_pdf(mock_file, from_url=True, url=url)
-
-        # Clean up
         os.unlink(tmp_file_path)
 
     except Exception as e:
         st.error(f"Error processing PDF from URL: {str(e)}")
 
-
 def display_welcome_screen():
-    """Display welcome screen with instructions."""
     st.markdown("""
-    ## Welcome to the FigSense
+    ## Welcome to FigSense
     
     This tool helps you:
-    - 📄 Upload PDF documents
-    - 🖼️ Extract all figures and images
-    - 🔍 Classify figure types automatically
-    - 📊 View comprehensive analysis
-    - 💾 Download individual figures or all as ZIP
-    - 📄 Generate detailed PDF analysis reports
+    - 📄 Upload or link a PDF
+    - 🖼️ Extract all figures
+    - 🤖 Classify them using AI
+    - 📊 Visualize and download results
     
-    ### Supported Figure Types (AI-Powered Classification):
-    - **Charts**: Bar charts, pie charts, line graphs, scatter plots, histograms, heatmaps
-    - **Diagrams**: Flowcharts, organizational charts, network diagrams, scientific diagrams
-    - **Technical**: Engineering diagrams, medical diagrams, floor plans
-    - **Images**: Photographs, screenshots, logos, infographics
-    - **Data**: Tables, timelines, and other data visualizations
-    - **Maps**: Geographic maps, spatial representations
-    
-    ### How to Use:
-    **Option 1: Upload from Computer**
-    1. Click "Choose a PDF file" in the Upload File tab
-    2. Select your PDF document
-    3. Click "Process Uploaded PDF" to start extraction
-    
-    **Option 2: Use URL**
-    1. Switch to the "From URL" tab
-    2. Enter the direct URL to a PDF file
-    3. Click "Validate URL" to check if it's valid
-    4. Click "Process PDF from URL" to start extraction
-    
-    **After Processing:**
-    - View results with AI-powered classifications
-    - See detailed descriptions and confidence scores
-    - Download individual figures or all as ZIP
-    - Generate comprehensive PDF analysis report
-    
-    Get started by uploading a PDF file!
+    Try uploading a PDF to begin!
     """)
 
-
 def display_results():
-    """Display the extracted figures and classification results."""
     figures = st.session_state.extracted_figures
     classifications = st.session_state.classification_results
 
-    # Statistics summary
     st.header("📈 Analysis Summary")
-
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Figures", len(figures))
@@ -293,278 +199,140 @@ def display_results():
         unique_types = len(set(c['classification'] for c in classifications))
         st.metric("Figure Types", unique_types)
     with col3:
-        avg_confidence = sum(c['confidence']
-                             for c in classifications) / len(classifications)
-        st.metric("Avg Confidence", f"{avg_confidence:.1%}")
+        avg_conf = sum(c['confidence'] for c in classifications) / len(classifications)
+        st.metric("Avg Confidence", f"{avg_conf:.1%}")
 
-    # Figure type distribution
     st.subheader("Figure Type Distribution")
     type_counts = {}
-    for classification in classifications:
-        fig_type = classification['classification']
-        type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
-
-    # Create distribution chart
-    df_types = pd.DataFrame(list(type_counts.items()),
-                            columns=['Type', 'Count'])
+    for c in classifications:
+        t = c['classification']
+        type_counts[t] = type_counts.get(t, 0) + 1
+    df_types = pd.DataFrame(list(type_counts.items()), columns=['Type', 'Count'])
     st.bar_chart(df_types.set_index('Type'))
 
-    # Download options
     st.subheader("Download Options")
-
     col1, col2 = st.columns(2)
-
     with col1:
         if st.button("📦 Download All Figures as ZIP"):
             zip_buffer = create_zip_download(figures, classifications)
-            st.download_button(label="Download ZIP",
-                               data=zip_buffer,
-                               file_name="extracted_figures.zip",
-                               mime="application/zip")
-
+            st.download_button("Download ZIP", zip_buffer, "extracted_figures.zip", "application/zip")
     with col2:
         if st.button("📄 Generate Analysis Report"):
             generate_pdf_report(figures, classifications)
 
-    # Display individual figures
     st.header("🖼️ Extracted Figures")
-
-    # Filter options
     col1, col2 = st.columns(2)
     with col1:
-        filter_type = st.selectbox("Filter by type:",
-                                   ['All'] + sorted(list(type_counts.keys())))
+        filter_type = st.selectbox("Filter by type:", ['All'] + sorted(type_counts.keys()))
     with col2:
-        sort_by = st.selectbox("Sort by:",
-                               ['Page Number', 'Confidence', 'Figure Type'])
+        sort_by = st.selectbox("Sort by:", ['Page Number', 'Confidence', 'Figure Type'])
 
-    # Filter and sort figures
-    filtered_results = classifications
+    filtered = classifications
     if filter_type != 'All':
-        filtered_results = [
-            c for c in classifications if c['classification'] == filter_type
-        ]
-
+        filtered = [c for c in classifications if c['classification'] == filter_type]
     if sort_by == 'Page Number':
-        filtered_results.sort(key=lambda x: x['page'])
+        filtered.sort(key=lambda x: x['page'])
     elif sort_by == 'Confidence':
-        filtered_results.sort(key=lambda x: x['confidence'], reverse=True)
+        filtered.sort(key=lambda x: x['confidence'], reverse=True)
     elif sort_by == 'Figure Type':
-        filtered_results.sort(key=lambda x: x['classification'])
+        filtered.sort(key=lambda x: x['classification'])
 
-    # Display figures in grid
-    cols_per_row = 2
-    for i in range(0, len(filtered_results), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j in range(cols_per_row):
-            if i + j < len(filtered_results):
-                result = filtered_results[i + j]
+    for i in range(0, len(filtered), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(filtered):
+                result = filtered[i + j]
                 figure_data = figures[result['figure_id']]
-
                 with cols[j]:
                     display_figure_card(figure_data, result)
 
+def display_figure_card(figure_data, result):
+    emoji = get_figure_type_emoji(result['classification'])
+    label = format_figure_type(result['classification'])
+    st.image(figure_data['image'], caption=f"Page {result['page']} - {emoji} {label}", use_container_width=True)
 
-def display_figure_card(figure_data, classification_result):
-    """Display a single figure card with classification info."""
-    with st.container():
-        # Get emoji and formatted name for the figure type
-        emoji = get_figure_type_emoji(classification_result['classification'])
-        formatted_type = format_figure_type(
-            classification_result['classification'])
+    conf = result['confidence']
+    color = "🟢" if conf > 0.8 else "🟡" if conf > 0.6 else "🔴"
+    st.markdown(f"""
+    **Type:** {emoji} {label}  
+    **Confidence:** {color} {conf:.1%}  
+    **Page:** {result['page']}  
+    **Description:** {result.get('description', 'N/A')}
+    """)
 
-        st.image(
-            figure_data['image'],
-            caption=
-            f"Page {classification_result['page']} - {emoji} {formatted_type}",
-            use_container_width=True)
+    if result.get('details') and result['details'].get('visual_elements'):
+        st.caption("Visual Elements: " + ", ".join(result['details']['visual_elements']))
 
-        # Figure details with enhanced information
-        confidence_color = "🟢" if classification_result[
-            'confidence'] > 0.8 else "🟡" if classification_result[
-                'confidence'] > 0.6 else "🔴"
+    if result.get('reasoning'):
+        with st.expander("AI Reasoning"):
+            st.write(result['reasoning'])
 
-        st.markdown(f"""
-        **Type:** {emoji} {formatted_type}  
-        **Confidence:** {confidence_color} {classification_result['confidence']:.1%}  
-        **Page:** {classification_result['page']}  
-        **Description:** {classification_result.get('description', 'No description available')}
-        """)
-
-        # Show additional details if available
-        if classification_result.get('details'):
-            details = classification_result['details']
-            if details.get('visual_elements'):
-                st.caption(
-                    f"Visual Elements: {', '.join(details['visual_elements'])}"
-                )
-
-        # Expandable section for AI reasoning
-        if classification_result.get('reasoning'):
-            with st.expander("AI Classification Reasoning"):
-                st.write(classification_result['reasoning'])
-
-        # Download button for individual figure
-        img_buffer = io.BytesIO()
-        figure_data['image'].save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-
-        st.download_button(
-            label="Download Figure",
-            data=img_buffer,
-            file_name=
-            f"figure_page_{classification_result['page']}_{classification_result['figure_id']}.png",
-            mime="image/png",
-            key=f"download_{classification_result['figure_id']}")
-
+    buffer = io.BytesIO()
+    figure_data['image'].save(buffer, format='PNG')
+    buffer.seek(0)
+    st.download_button("Download Figure", buffer, f"figure_page_{result['page']}_{result['figure_id']}.png", "image/png", key=f"dl_{result['figure_id']}")
 
 def create_zip_download(figures, classifications):
-    """Create a ZIP file containing all extracted figures."""
     zip_buffer = io.BytesIO()
-
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # Create summary CSV
-        summary_data = []
-        for i, (figure,
-                classification) in enumerate(zip(figures, classifications)):
-            summary_data.append({
-                'Figure ID': i,
-                'Filename': f"figure_page_{classification['page']}_{i}.png",
-                'Type': classification['classification'],
-                'Confidence': f"{classification['confidence']:.1%}",
-                'Page': classification['page']
-            })
-
-        df_summary = pd.DataFrame(summary_data)
+        df = pd.DataFrame([{
+            'Figure ID': i,
+            'Filename': f"figure_page_{c['page']}_{i}.png",
+            'Type': c['classification'],
+            'Confidence': f"{c['confidence']:.1%}",
+            'Page': c['page']
+        } for i, c in enumerate(classifications)])
         csv_buffer = io.StringIO()
-        df_summary.to_csv(csv_buffer, index=False)
+        df.to_csv(csv_buffer, index=False)
         zip_file.writestr('figure_summary.csv', csv_buffer.getvalue())
 
-        # Add individual figures
-        for i, (figure,
-                classification) in enumerate(zip(figures, classifications)):
-            img_buffer = io.BytesIO()
-            figure['image'].save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-
-            filename = f"figure_page_{classification['page']}_{i}.png"
-            zip_file.writestr(filename, img_buffer.getvalue())
+        for i, (fig, c) in enumerate(zip(figures, classifications)):
+            img_buf = io.BytesIO()
+            fig['image'].save(img_buf, format='PNG')
+            img_buf.seek(0)
+            zip_file.writestr(f"figure_page_{c['page']}_{i}.png", img_buf.getvalue())
 
     zip_buffer.seek(0)
     return zip_buffer
 
-
 def generate_pdf_report(figures, classifications):
-    """Generate and provide download for PDF analysis report."""
-    progress_bar = None
-    status_text = None
-
     try:
-        # Show progress
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        progress = st.progress(0)
+        status = st.empty()
+        status.text("Generating PDF report...")
+        progress.progress(25)
 
-        status_text.text("Generating comprehensive PDF report...")
-        progress_bar.progress(25)
-
-        # Validate input data
         if not figures or not classifications:
-            st.error("No figures or classifications found to generate report.")
+            st.error("No figures or classifications found.")
             return
 
-        # Initialize report generator
         report_generator = PDFReportGenerator()
-
-        progress_bar.progress(50)
-        status_text.text("Creating report content...")
-
-        # Generate report with better error handling
         source_info = st.session_state.get('source_info', 'PDF Document')
 
+        progress.progress(50)
+        status.text("Creating report...")
+
         try:
-            pdf_buffer = report_generator.create_summary_buffer(
-                figures, classifications, source_info)
-        except Exception as report_error:
-            st.error(f"Error creating report content: {str(report_error)}")
-            # Try to create a simplified report
-            st.warning("Attempting to create simplified report...")
-            try:
-                # Create minimal report with text only
-                from io import BytesIO
-                pdf_buffer = BytesIO()
-                # Simple fallback: create a basic text summary
-                summary_text = f"""
-                PDF Figure Analysis Report
-                Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                Source: {source_info}
-                
-                Summary:
-                - Total figures extracted: {len(figures)}
-                - Total classifications: {len(classifications)}
-                
-                Figure Types Found:
-                """
+            pdf_buffer = report_generator.create_summary_buffer(figures, classifications, source_info)
+        except Exception as e:
+            st.warning("Falling back to simple text summary.")
+            from io import BytesIO
+            pdf_buffer = BytesIO()
+            text = f"FigSense Report\n{datetime.now()}\n{source_info}\n\n"
+            for c in classifications:
+                text += f"- Page {c['page']}: {c['classification']} ({c['confidence']:.1%})\n"
+            pdf_buffer.write(text.encode('utf-8'))
+            pdf_buffer.seek(0)
 
-                type_counts = {}
-                for classification in classifications:
-                    fig_type = classification['classification']
-                    type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
+        progress.progress(100)
+        status.text("Ready for download!")
 
-                for fig_type, count in type_counts.items():
-                    summary_text += f"- {fig_type}: {count}\n"
-
-                # Create a simple text file as fallback
-                pdf_buffer.write(summary_text.encode('utf-8'))
-                pdf_buffer.seek(0)
-
-                st.warning(
-                    "Created simplified text report due to PDF generation issues."
-                )
-
-            except Exception as fallback_error:
-                st.error(f"Could not create report: {str(fallback_error)}")
-                return
-
-        progress_bar.progress(75)
-        status_text.text("Finalizing report...")
-
-        # Generate filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"figure_analysis_report_{timestamp}.pdf"
-
-        progress_bar.progress(100)
-        status_text.text("Report ready for download!")
-
-        # Provide download button
-        st.download_button(
-            label="📄 Download Analysis Report (PDF)",
-            data=pdf_buffer,
-            file_name=filename,
-            mime="application/pdf",
-            help=
-            "Complete analysis report with figure thumbnails, statistics, and detailed descriptions"
-        )
-
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
-
-        st.success(
-            "PDF report generated successfully! Click the download button above."
-        )
+        st.download_button("📄 Download Report", pdf_buffer, f"figsense_report_{timestamp}.pdf", "application/pdf")
 
     except Exception as e:
-        st.error(f"Error generating PDF report: {str(e)}")
-        st.info("Please try again or contact support if the issue persists.")
+        st.error(f"Error generating report: {str(e)}")
 
-    finally:
-        # Clear progress indicators on any exit
-        try:
-            if progress_bar is not None:
-                progress_bar.empty()
-            if status_text is not None:
-                status_text.empty()
-        except:
-            pass 
-            
+# ✅ Final entry point
+if __name__ == "__main__":
     main()
