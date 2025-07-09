@@ -3,6 +3,8 @@ import json
 import logging
 import base64
 import io
+import time
+import random
 from PIL import Image
 from google import genai
 from google.genai import types
@@ -45,7 +47,7 @@ class AIFigureClassifier:
     
     def classify_figure(self, image):
         """
-        Classify a figure using Google Gemini AI.
+        Classify a figure using Google Gemini AI with retry logic.
         
         Args:
             image (PIL.Image): The image to classify
@@ -53,48 +55,69 @@ class AIFigureClassifier:
         Returns:
             dict: Classification results with type, confidence, and description
         """
-        try:
-            # Convert PIL image to bytes
-            img_buffer = io.BytesIO()
-            image.save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-            image_bytes = img_buffer.read()
-            
-            # Create the classification prompt
-            prompt = self._create_classification_prompt()
-            
-            # Call Gemini API
-            response = self.client.models.generate_content(
-                model="gemini-2.0-flash-exp",
-                contents=[
-                    types.Part.from_bytes(
-                        data=image_bytes,
-                        mime_type="image/png",
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # Convert PIL image to bytes
+                img_buffer = io.BytesIO()
+                image.save(img_buffer, format='PNG')
+                img_buffer.seek(0)
+                image_bytes = img_buffer.read()
+                
+                # Create the classification prompt
+                prompt = self._create_classification_prompt()
+                
+                # Call Gemini API
+                response = self.client.models.generate_content(
+                    model="gemini-2.0-flash-exp",
+                    contents=[
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type="image/png",
+                        ),
+                        prompt
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
                     ),
-                    prompt
-                ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
-            )
-            
-            if response.text:
-                result = json.loads(response.text)
-                self.confidence_score = result.get('confidence', 0.5)
+                )
                 
-                return {
-                    'classification': result.get('type', 'unknown'),
-                    'confidence': self.confidence_score,
-                    'description': result.get('description', 'No description available'),
-                    'details': result.get('details', {}),
-                    'reasoning': result.get('reasoning', '')
-                }
-            else:
-                return self._fallback_classification()
+                if response.text:
+                    result = json.loads(response.text)
+                    self.confidence_score = result.get('confidence', 0.5)
+                    
+                    return {
+                        'classification': result.get('type', 'unknown'),
+                        'confidence': self.confidence_score,
+                        'description': result.get('description', 'No description available'),
+                        'details': result.get('details', {}),
+                        'reasoning': result.get('reasoning', '')
+                    }
+                else:
+                    return self._fallback_classification()
+                    
+            except Exception as e:
+                error_msg = str(e)
+                self.logger.error(f"AI classification attempt {attempt + 1} failed: {error_msg}")
                 
-        except Exception as e:
-            self.logger.error(f"Error in AI classification: {str(e)}")
-            return self._fallback_classification()
+                # Check if it's a rate limit error
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        self.logger.info(f"Rate limit hit, waiting {delay:.2f} seconds before retry...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        self.logger.error("Rate limit exceeded, using fallback classification")
+                        return self._fallback_classification()
+                else:
+                    # For other errors, use fallback immediately
+                    return self._fallback_classification()
+        
+        return self._fallback_classification()
     
     def get_confidence(self):
         """Get the confidence score of the last classification."""
