@@ -1,1 +1,0 @@
-# pdf-image-classifier
