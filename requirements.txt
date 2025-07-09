@@ -1,4 +1,4 @@
-
+google-generativeai
 streamlit
 opencv-python
 numpy
