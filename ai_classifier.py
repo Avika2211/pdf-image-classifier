@@ -5,6 +5,7 @@ import base64
 import io
 import time
 import random
+import numpy as np
 from PIL import Image
 from google import genai
 from google.genai import types
@@ -96,7 +97,7 @@ class AIFigureClassifier:
                         'reasoning': result.get('reasoning', '')
                     }
                 else:
-                    return self._fallback_classification()
+                    return self._fallback_classification(image)
                     
             except Exception as e:
                 error_msg = str(e)
@@ -112,12 +113,12 @@ class AIFigureClassifier:
                         continue
                     else:
                         self.logger.error("Rate limit exceeded, using fallback classification")
-                        return self._fallback_classification()
+                        return self._fallback_classification(image)
                 else:
                     # For other errors, use fallback immediately
-                    return self._fallback_classification()
+                    return self._fallback_classification(image)
         
-        return self._fallback_classification()
+        return self._fallback_classification(image)
     
     def get_confidence(self):
         """Get the confidence score of the last classification."""
@@ -164,16 +165,79 @@ class AIFigureClassifier:
         """
         return prompt
     
-    def _fallback_classification(self):
-        """Fallback classification when AI fails."""
-        self.confidence_score = 0.3
-        return {
-            'classification': 'unknown',
-            'confidence': 0.3,
-            'description': 'Could not classify figure',
-            'details': {},
-            'reasoning': 'AI classification failed, using fallback'
-        }
+    def _fallback_classification(self, image=None):
+        """Enhanced fallback classification with basic visual analysis."""
+        try:
+            if image is not None:
+                # Basic visual analysis
+                img_array = np.array(image)
+                height, width = img_array.shape[:2]
+                aspect_ratio = width / height
+                
+                # Simple heuristics based on visual properties
+                if len(img_array.shape) == 3:
+                    # Color image
+                    mean_color = np.mean(img_array)
+                    std_color = np.std(img_array)
+                    
+                    # Simple classification logic
+                    if aspect_ratio > 2:
+                        classification = 'timeline'
+                        confidence = 0.6
+                        description = 'Wide horizontal layout suggests timeline or process flow'
+                    elif 0.8 <= aspect_ratio <= 1.2 and std_color > 50:
+                        classification = 'chart_other'
+                        confidence = 0.5
+                        description = 'Square format with varied colors suggests chart or graph'
+                    elif std_color > 80:
+                        classification = 'photograph'
+                        confidence = 0.4
+                        description = 'High color variation suggests photographic content'
+                    else:
+                        classification = 'diagram_other'
+                        confidence = 0.4
+                        description = 'Simple diagram or illustration'
+                else:
+                    classification = 'diagram_other'
+                    confidence = 0.3
+                    description = 'Grayscale content, likely diagram or text'
+                
+                self.confidence_score = confidence
+                return {
+                    'classification': classification,
+                    'confidence': confidence,
+                    'description': description,
+                    'details': {
+                        'visual_elements': ['basic visual analysis'],
+                        'analysis_method': 'Local fallback analysis',
+                        'aspect_ratio': f'{aspect_ratio:.2f}'
+                    },
+                    'reasoning': f'AI quota exceeded, used local analysis. Aspect ratio: {aspect_ratio:.2f}'
+                }
+            else:
+                self.confidence_score = 0.3
+                return {
+                    'classification': 'unknown',
+                    'confidence': 0.3,
+                    'description': 'Figure detected but classification unavailable',
+                    'details': {
+                        'visual_elements': ['visual content'],
+                        'analysis_method': 'Basic fallback'
+                    },
+                    'reasoning': 'AI classification unavailable due to quota limits'
+                }
+        except Exception as e:
+            self.confidence_score = 0.2
+            return {
+                'classification': 'unknown',
+                'confidence': 0.2,
+                'description': 'Figure extraction successful but classification failed',
+                'details': {
+                    'visual_elements': ['visual content'],
+                    'analysis_method': 'Error fallback'
+                },
+                'reasoning': f'Fallback analysis failed: {str(e)}'
+            }
     
     def get_supported_categories(self):
         """Get all supported figure categories."""

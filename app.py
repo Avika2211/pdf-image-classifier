@@ -425,6 +425,9 @@ def create_zip_download(figures, classifications):
 
 def generate_pdf_report(figures, classifications):
     """Generate and provide download for PDF analysis report."""
+    progress_bar = None
+    status_text = None
+    
     try:
         # Show progress
         progress_bar = st.progress(0)
@@ -433,15 +436,60 @@ def generate_pdf_report(figures, classifications):
         status_text.text("Generating comprehensive PDF report...")
         progress_bar.progress(25)
         
+        # Validate input data
+        if not figures or not classifications:
+            st.error("No figures or classifications found to generate report.")
+            return
+        
         # Initialize report generator
         report_generator = PDFReportGenerator()
         
         progress_bar.progress(50)
         status_text.text("Creating report content...")
         
-        # Generate report
+        # Generate report with better error handling
         source_info = st.session_state.get('source_info', 'PDF Document')
-        pdf_buffer = report_generator.create_summary_buffer(figures, classifications, source_info)
+        
+        try:
+            pdf_buffer = report_generator.create_summary_buffer(figures, classifications, source_info)
+        except Exception as report_error:
+            st.error(f"Error creating report content: {str(report_error)}")
+            # Try to create a simplified report
+            st.warning("Attempting to create simplified report...")
+            try:
+                # Create minimal report with text only
+                from io import BytesIO
+                pdf_buffer = BytesIO()
+                # Simple fallback: create a basic text summary
+                summary_text = f"""
+                PDF Figure Analysis Report
+                Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                Source: {source_info}
+                
+                Summary:
+                - Total figures extracted: {len(figures)}
+                - Total classifications: {len(classifications)}
+                
+                Figure Types Found:
+                """
+                
+                type_counts = {}
+                for classification in classifications:
+                    fig_type = classification['classification']
+                    type_counts[fig_type] = type_counts.get(fig_type, 0) + 1
+                
+                for fig_type, count in type_counts.items():
+                    summary_text += f"- {fig_type}: {count}\n"
+                
+                # Create a simple text file as fallback
+                pdf_buffer.write(summary_text.encode('utf-8'))
+                pdf_buffer.seek(0)
+                
+                st.warning("Created simplified text report due to PDF generation issues.")
+                
+            except Exception as fallback_error:
+                st.error(f"Could not create report: {str(fallback_error)}")
+                return
         
         progress_bar.progress(75)
         status_text.text("Finalizing report...")
@@ -470,11 +518,17 @@ def generate_pdf_report(figures, classifications):
         
     except Exception as e:
         st.error(f"Error generating PDF report: {str(e)}")
-        # Clear progress indicators on error
-        if 'progress_bar' in locals():
-            progress_bar.empty()
-        if 'status_text' in locals():
-            status_text.empty()
+        st.info("Please try again or contact support if the issue persists.")
+        
+    finally:
+        # Clear progress indicators on any exit
+        try:
+            if progress_bar is not None:
+                progress_bar.empty()
+            if status_text is not None:
+                status_text.empty()
+        except:
+            pass
 
 if __name__ == "__main__":
     main()

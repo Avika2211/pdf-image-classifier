@@ -298,26 +298,47 @@ class PDFReportGenerator:
             figure_title = f"Figure {fig_num}: {emoji} {formatted_type}"
             story.append(Paragraph(figure_title, self.subsection_style))
             
-            # Create thumbnail
+            # Create thumbnail with better error handling
             try:
                 # Create a smaller version of the image for the report
                 img = figure_data['image'].copy()
+                
+                # Ensure image is in RGB mode
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Create thumbnail
                 img.thumbnail((300, 300), Image.Resampling.LANCZOS)
                 
-                # Save to temporary file
-                temp_img_path = tempfile.mktemp(suffix='.png')
-                img.save(temp_img_path, 'PNG')
+                # Save to temporary file with unique name
+                import uuid
+                temp_img_path = tempfile.mktemp(suffix=f'_{uuid.uuid4().hex[:8]}.png')
                 
-                # Add image to report
-                rl_img = RLImage(temp_img_path, width=min(img.width, 300), height=min(img.height, 300))
-                story.append(rl_img)
+                try:
+                    img.save(temp_img_path, 'PNG')
+                    
+                    # Add image to report with proper sizing
+                    actual_width, actual_height = img.size
+                    max_width = min(actual_width, 300)
+                    max_height = min(actual_height, 300)
+                    
+                    rl_img = RLImage(temp_img_path, width=max_width, height=max_height)
+                    story.append(rl_img)
+                    
+                except Exception as save_error:
+                    story.append(Paragraph(f"[Figure {fig_num}: Unable to include image - {str(save_error)}]", self.caption_style))
                 
-                # Clean up temp file
-                os.unlink(temp_img_path)
+                finally:
+                    # Clean up temp file safely
+                    try:
+                        if os.path.exists(temp_img_path):
+                            os.unlink(temp_img_path)
+                    except:
+                        pass  # Ignore cleanup errors
                 
             except Exception as e:
                 # If image processing fails, just note it
-                story.append(Paragraph(f"[Image could not be included: {str(e)}]", self.caption_style))
+                story.append(Paragraph(f"[Figure {fig_num}: Image processing failed - {str(e)}]", self.caption_style))
             
             # Figure details
             confidence_indicator = "🟢" if classification['confidence'] > 0.8 else "🟡" if classification['confidence'] > 0.6 else "🔴"
