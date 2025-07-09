@@ -9,7 +9,10 @@ import numpy as np
 from PIL import Image
 from google import genai
 from google.genai import types
+from google.generativeai import GenerativeModel, configure
 
+api_key = st.secrets["google_ai"]["api_key"]
+configure(api_key=api_key)
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
     
