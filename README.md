@@ -125,7 +125,7 @@ Feature request: URL-based PDF processing in addition to file upload.
 ## Deployment Strategy
 
 ### Development Environment
-- **Platform**: Designed for Replit deployment
+- **Platform**: Designed for local hosting as well as deployment
 - **Configuration**: Streamlit configuration for web deployment
 - **File Structure**: Modular Python application with clear separation of concerns
 
