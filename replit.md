@@ -1,4 +1,4 @@
-# PDF Figure Extraction & Classification Tool
+# FIGSENSE
 
 ## Overview
 
