@@ -9,7 +9,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from google.generativeai import GenerativeModel, configure
-from google.generativeai.types import Part, GenerateContentConfig
+from google.generativeai.types import GenerateContentConfig
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
