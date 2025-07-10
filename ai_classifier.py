@@ -1,228 +1,103 @@
-import os
-import json
-import logging
-import base64
 import io
-import time
-import random
 import numpy as np
-import streamlit as st
 from PIL import Image
+import streamlit as st
 from google.generativeai import GenerativeModel, configure
+from google.api_core.exceptions import ResourceExhausted
+import hashlib
+
+# Access both API keys from secrets
+API_KEYS = [
+    st.secrets["google_ai"]["api_key1"],
+    st.secrets["google_ai"]["api_key2"],
+]
+
+def get_image_hash(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()
+
+@st.cache_data
+def call_gemini_with_fallback(prompt: str, image_bytes: bytes) -> str:
+    """Try calling Gemini with both keys; fallback to error message if both fail."""
+    for key in API_KEYS:
+        try:
+            configure(api_key=key)
+            model = GenerativeModel("gemini-pro-vision")
+            response = model.generate_content([prompt, image_bytes])
+            return response.text
+        except ResourceExhausted:
+            continue  # try next key
+        except Exception as e:
+            return f"⚠️ Gemini API error: {e}"
+
+    return "⚠️ Gemini quota exceeded. Used local analysis."
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        configure(api_key=st.secrets["google_ai"]["api_key"])
-        self.model = GenerativeModel("gemini-1.5-flash-latest")
-        self.confidence_score = 0.0
+        self.prompt = (
+            "You are an expert document visual analyst with more than 20 years of experience and 4 PHDs in the field of Figure classification and identification. Classify the given figure into one of the following types: "
+            "Bar Chart, Line Graph, Pie Chart, Timeline, Photograph, Table, Other Chart, Other Diagram. "
+            "Also describe the layout and visual structure in one line."
+        )
 
-        self.figure_categories = {
-            "bar_chart": "Bar Chart - Shows data using rectangular bars",
-            "pie_chart": "Pie Chart - Circular chart showing proportions",
-            "line_graph": "Line Graph - Shows trends over time or continuous data",
-            "scatter_plot": "Scatter Plot - Shows relationship between two variables",
-            "histogram": "Histogram - Shows distribution of data",
-            "box_plot": "Box Plot - Shows statistical distribution",
-            "heatmap": "Heatmap - Shows data intensity with colors",
-            "flowchart": "Flowchart - Shows process or workflow",
-            "organizational_chart": "Organizational Chart - Shows hierarchy",
-            "network_diagram": "Network Diagram - Shows connections between entities",
-            "scientific_diagram": "Scientific Diagram - Technical/scientific illustration",
-            "medical_diagram": "Medical Diagram - Anatomical or medical illustration",
-            "engineering_diagram": "Engineering Diagram - Technical drawing or schematic",
-            "map": "Map - Geographic or spatial representation",
-            "floor_plan": "Floor Plan - Architectural layout",
-            "timeline": "Timeline - Shows events over time",
-            "table": "Table - Structured data in rows and columns",
-            "infographic": "Infographic - Visual information presentation",
-            "photograph": "Photograph - Real-world image",
-            "screenshot": "Screenshot - Computer screen capture",
-            "logo": "Logo - Brand or company symbol",
-            "chart_other": "Other Chart Type - Specialized chart not in main categories",
-            "diagram_other": "Other Diagram - General diagram or illustration",
-            "unknown": "Unknown - Cannot determine figure type"
+    def classify(self, image: Image.Image) -> dict:
+        image_bytes = self._image_to_bytes(image)
+        image_hash = get_image_hash(image_bytes)
+
+        # Check cache first
+        response = call_gemini_with_fallback(self.prompt, image_bytes)
+
+        if "Gemini quota exceeded" in response or response.startswith("⚠️ Gemini"):
+            tag = "📐 Other Diagram"
+            confidence = 30.0
+            desc = "Grayscale content, likely diagram or text"
+            reason = response
+        else:
+            tag, confidence, desc, reason = self._parse_response(response)
+
+        return {
+            "type": tag,
+            "confidence": confidence,
+            "description": desc,
+            "reasoning": reason,
         }
 
-    def classify_figure(self, image):
-        max_retries = 3
-        base_delay = 1.0
+    def _image_to_bytes(self, image: Image.Image) -> bytes:
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        return buf.getvalue()
 
-        for attempt in range(max_retries):
-            try:
-                img_buffer = io.BytesIO()
-                image.save(img_buffer, format='PNG')
-                img_buffer.seek(0)
-                image_bytes = img_buffer.read()
+    def _parse_response(self, response: str):
+        response = response.strip()
 
-                prompt = self._create_classification_prompt()
+        # Try to extract figure type from response
+        lower_resp = response.lower()
+        if "bar chart" in lower_resp:
+            tag = "📊 Bar Chart"
+            confidence = 90.0
+        elif "line graph" in lower_resp:
+            tag = "📈 Line Graph"
+            confidence = 90.0
+        elif "pie chart" in lower_resp:
+            tag = "🟢 Pie Chart"
+            confidence = 90.0
+        elif "timeline" in lower_resp:
+            tag = "⏰ Timeline"
+            confidence = 60.0
+        elif "photograph" in lower_resp or "photo" in lower_resp:
+            tag = "📷 Photograph"
+            confidence = 40.0
+        elif "table" in lower_resp:
+            tag = "📋 Table"
+            confidence = 70.0
+        elif "chart" in lower_resp:
+            tag = "📊 Other Chart"
+            confidence = 50.0
+        else:
+            tag = "📐 Other Diagram"
+            confidence = 40.0
 
-                response = self.model.generate_content(
-                    [
-                        Part.from_data(data=image_bytes, mime_type="image/png"),
-                        prompt
-                    ],
-                    generation_config=GenerationConfig(response_mime_type="application/json")
-                )
-
-                if response.text:
-                    result = json.loads(response.text)
-                    self.confidence_score = result.get('confidence', 0.5)
-
-                    return {
-                        'classification': result.get('type', 'unknown'),
-                        'confidence': self.confidence_score,
-                        'description': result.get('description', 'No description available'),
-                        'details': result.get('details', {}),
-                        'reasoning': result.get('reasoning', '')
-                    }
-                else:
-                    return self._fallback_classification(image)
-
-            except Exception as e:
-                error_msg = str(e)
-                self.logger.error(f"AI classification attempt {attempt + 1} failed: {error_msg}")
-
-                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                        self.logger.info(f"Rate limit hit, waiting {delay:.2f} seconds before retry...")
-                        time.sleep(delay)
-                        continue
-                    else:
-                        self.logger.error("Rate limit exceeded, using fallback classification")
-                        return self._fallback_classification(image)
-                else:
-                    return self._fallback_classification(image)
-
-        return self._fallback_classification(image)
-
-    def get_confidence(self):
-        return self.confidence_score
-
-    def _create_classification_prompt(self):
-        categories_text = "\n".join([f"- {key}: {desc}" for key, desc in self.figure_categories.items()])
-
-        prompt = f"""
-        Analyze this figure/image and classify it into one of the following categories. Be very precise and accurate.
-
-        AVAILABLE CATEGORIES:
-        {categories_text}
-
-        CLASSIFICATION REQUIREMENTS:
-        1. Look carefully at the visual elements, structure, and content
-        2. Consider the purpose and typical use of the figure
-        3. For charts/graphs, identify the specific type (bar, pie, line, scatter, etc.)
-        4. For diagrams, determine the specific domain (scientific, medical, engineering, etc.)
-        5. For images, distinguish between photographs, screenshots, logos, etc.
-
-        SPECIAL CONSIDERATIONS:
-        - Tables: Look for structured data in rows and columns
-        - Charts: Identify data visualization patterns (bars, lines, circles, points)
-        - Diagrams: Look for flowcharts, organizational structures, technical drawings
-        - Scientific: Look for formulas, molecular structures, anatomical drawings
-        - Maps: Geographic features, roads, boundaries, topographical elements
-
-        OUTPUT FORMAT (JSON):
-        {{
-            "type": "category_key_from_list_above",
-            "confidence": 0.95,
-            "description": "Brief description of what you see",
-            "details": {{
-                "visual_elements": ["list", "of", "key", "elements"],
-                "data_type": "type of data shown if applicable",
-                "domain": "subject domain if applicable"
-            }},
-            "reasoning": "Why you chose this classification"
-        }}
-
-        Be extremely accurate. If you're not sure between two categories, pick the most specific one that fits best.
-        """
-        return prompt
-
-    def _fallback_classification(self, image=None):
-        try:
-            if image is not None:
-                img_array = np.array(image)
-                height, width = img_array.shape[:2]
-                aspect_ratio = width / height
-
-                if len(img_array.shape) == 3:
-                    mean_color = np.mean(img_array)
-                    std_color = np.std(img_array)
-
-                    if aspect_ratio > 2:
-                        classification = 'timeline'
-                        confidence = 0.6
-                        description = 'Wide horizontal layout suggests timeline or process flow'
-                    elif 0.8 <= aspect_ratio <= 1.2 and std_color > 50:
-                        classification = 'chart_other'
-                        confidence = 0.5
-                        description = 'Square format with varied colors suggests chart or graph'
-                    elif std_color > 80:
-                        classification = 'photograph'
-                        confidence = 0.4
-                        description = 'High color variation suggests photographic content'
-                    else:
-                        classification = 'diagram_other'
-                        confidence = 0.4
-                        description = 'Simple diagram or illustration'
-                else:
-                    classification = 'diagram_other'
-                    confidence = 0.3
-                    description = 'Grayscale content, likely diagram or text'
-
-                self.confidence_score = confidence
-                return {
-                    'classification': classification,
-                    'confidence': confidence,
-                    'description': description,
-                    'details': {
-                        'visual_elements': ['basic visual analysis'],
-                        'analysis_method': 'Local fallback analysis',
-                        'aspect_ratio': f'{aspect_ratio:.2f}'
-                    },
-                    'reasoning': f'AI quota exceeded, used local analysis. Aspect ratio: {aspect_ratio:.2f}'
-                }
-            else:
-                self.confidence_score = 0.3
-                return {
-                    'classification': 'unknown',
-                    'confidence': 0.3,
-                    'description': 'Figure detected but classification unavailable',
-                    'details': {
-                        'visual_elements': ['visual content'],
-                        'analysis_method': 'Basic fallback'
-                    },
-                    'reasoning': 'AI classification unavailable due to quota limits'
-                }
-        except Exception as e:
-            self.confidence_score = 0.2
-            return {
-                'classification': 'unknown',
-                'confidence': 0.2,
-                'description': 'Figure extraction successful but classification failed',
-                'details': {
-                    'visual_elements': ['visual content'],
-                    'analysis_method': 'Error fallback'
-                },
-                'reasoning': f'Fallback analysis failed: {str(e)}'
-            }
-
-    def get_supported_categories(self):
-        return self.figure_categories
-
-    def batch_classify(self, images, progress_callback=None):
-        results = []
-        total = len(images)
-
-        for i, image in enumerate(images):
-            result = self.classify_figure(image)
-            results.append(result)
-
-            if progress_callback:
-                progress_callback(i + 1, total)
-
-        return results
+        # First sentence is the description
+        desc = response.split(".")[0]
+        return tag, confidence, desc, response
