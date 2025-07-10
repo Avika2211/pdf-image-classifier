@@ -8,7 +8,6 @@ from PIL import Image
 import numpy as np
 import cv2
 
-
 class FreeFigureClassifier:
     """Free figure classifier using Hugging Face models and local processing."""
 
@@ -47,23 +46,44 @@ class FreeFigureClassifier:
             "unknown": ["unclear", "unknown", "indeterminate"]
         }
 
+        self.figure_emojis = {
+            "bar_chart": "📊",
+            "pie_chart": "🥧",
+            "line_graph": "📈",
+            "scatter_plot": "📉",
+            "histogram": "📊",
+            "box_plot": "📦",
+            "heatmap": "🌡️",
+            "flowchart": "🔁",
+            "organizational_chart": "🗂️",
+            "network_diagram": "🔗",
+            "scientific_diagram": "🧪",
+            "medical_diagram": "🫀",
+            "engineering_diagram": "📐",
+            "map": "🗺️",
+            "floor_plan": "🏠",
+            "timeline": "🕒",
+            "table": "📋",
+            "infographic": "📌",
+            "photograph": "📷",
+            "screenshot": "🖥️",
+            "logo": "🚩",
+            "chart_other": "🔢",
+            "diagram_other": "📝",
+            "unknown": "❓"
+        }
+
     def classify_figure(self, image):
-        """Classify a figure using Hugging Face + local processing."""
         try:
             description = self._get_image_description(image)
             result = self._classify_from_description(description, image)
-
-            # Final standard format
-            return {
-                "type": self._map_to_label(result.get("classification", "unknown")),
-                "confidence": round(result.get("confidence", 0.3) * 100, 1),
-                "description": result.get("description", "Could not classify"),
-                "reasoning": result.get("reasoning", "No reasoning available"),
-                "details": result.get("details", {})
-            }
-
+            # Inject 'type' and 'classification' for downstream compatibility
+            classification = result.get("classification", "unknown")
+            result["type"] = f"{self.figure_emojis.get(classification, '❓')} {classification.replace('_', ' ').title()}"
+            result["classification"] = classification  # make sure it's present
+            return result
         except Exception as e:
-            self.logger.error(f"Error classifying image: {str(e)}")
+            self.logger.error(f"Error in classification: {str(e)}")
             return self._fallback_classification()
 
     def _get_image_description(self, image):
@@ -77,15 +97,14 @@ class FreeFigureClassifier:
                 files={"inputs": img_buffer.getvalue()},
                 timeout=10
             )
-
             if response.status_code == 200:
                 result = response.json()
-                if isinstance(result, list) and result:
+                if isinstance(result, list) and len(result) > 0:
                     return result[0].get('generated_text', '')
-        except:
-            pass
-
-        return self._analyze_image_locally(image)
+            return self._analyze_image_locally(image)
+        except Exception as e:
+            self.logger.warning(f"BLIP failed, falling back: {str(e)}")
+            return self._analyze_image_locally(image)
 
     def _analyze_image_locally(self, image):
         try:
@@ -106,16 +125,15 @@ class FreeFigureClassifier:
                 edge_density = 0
 
             desc = []
-
             if aspect_ratio > 1.5: desc.append("wide")
-            if aspect_ratio < 0.7: desc.append("tall")
+            elif aspect_ratio < 0.7: desc.append("tall")
             if color_diversity > 0.1: desc.append("colorful")
-            if color_diversity < 0.01: desc.append("simple")
+            elif color_diversity < 0.01: desc.append("simple")
             if edge_density > 0.2: desc.append("detailed diagram")
             elif edge_density > 0.1: desc.append("chart")
             else: desc.append("image")
             if brightness > 200: desc.append("bright")
-            if brightness < 100: desc.append("dark")
+            elif brightness < 100: desc.append("dark")
 
             return " ".join(desc) if desc else "visual content"
         except:
@@ -123,175 +141,133 @@ class FreeFigureClassifier:
 
     def _simple_edge_detection(self, gray_image):
         try:
-            gray_uint8 = gray_image.astype(np.uint8)
-            return cv2.Canny(gray_uint8, 50, 150)
+            return cv2.Canny(gray_image.astype(np.uint8), 50, 150)
         except:
             return np.zeros_like(gray_image)
 
     def _classify_from_description(self, description, image):
-        try:
-            desc_lower = description.lower()
-            scores = {}
+        desc_lower = description.lower()
+        scores = {k: sum(len(w) for w in v if w in desc_lower) for k, v in self.figure_categories.items()}
+        scores = {k: v for k, v in scores.items() if v > 0}
+        enhanced = self._enhance_classification_with_analysis(image, scores)
 
-            for cat, keywords in self.figure_categories.items():
-                scores[cat] = sum(len(k) for k in keywords if k in desc_lower)
-
-            enhanced = self._enhance_classification_with_analysis(image, scores)
-
-            if enhanced:
-                best = max(enhanced.items(), key=lambda x: x[1])
-                category, score = best
-                confidence = min(0.95, 0.5 + score / 20)
-
-                self.confidence_score = confidence
-                return {
-                    'classification': category,
-                    'confidence': confidence,
-                    'description': self._generate_description(category, description),
-                    'details': {
-                        'visual_elements': self._extract_visual_elements(description, category),
-                        'analysis_method': 'Free local + HuggingFace analysis'
-                    },
-                    'reasoning': f"Classified as {category} based on visual + textual clues"
-                }
-
+        if enhanced:
+            best = max(enhanced.items(), key=lambda x: x[1])
+            classification = best[0]
+            confidence = min(0.95, 0.5 + best[1] / 20)
+            self.confidence_score = confidence
+            return {
+                "classification": classification,
+                "confidence": confidence,
+                "description": self._generate_description(classification, description),
+                "details": {
+                    "visual_elements": self._extract_visual_elements(description, classification),
+                    "analysis_method": "Free local + HuggingFace analysis"
+                },
+                "reasoning": f"Classified as {classification} using description '{description}'"
+            }
+        else:
             return self._classify_by_visual_analysis(image, description)
-        except Exception as e:
-            return self._fallback_classification()
 
-    def _enhance_classification_with_analysis(self, image, base_scores):
+    def _enhance_classification_with_analysis(self, image, scores):
         try:
             img_array = np.array(image)
             h, w = img_array.shape[:2]
-            aspect_ratio = w / h
+            ar = w / h
+            enhanced = scores.copy()
 
-            scores = base_scores.copy()
-            if 0.8 <= aspect_ratio <= 1.5:
-                for t in ['bar_chart', 'pie_chart', 'line_graph']: scores[t] += 5
-            if aspect_ratio > 2:
-                for t in ['timeline', 'flowchart']: scores[t] += 8
-
+            if 0.8 <= ar <= 1.5:
+                for t in ['bar_chart', 'line_graph', 'scatter_plot']:
+                    if t in enhanced: enhanced[t] += 5
+            if ar > 2:
+                for t in ['timeline', 'flowchart']:
+                    if t in enhanced: enhanced[t] += 8
             if len(img_array.shape) == 3:
-                unique_colors = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
-                color_div = unique_colors / (h * w)
-                if color_div > 0.1:
-                    for t in ['photograph', 'map', 'infographic']: scores[t] += 6
-                if color_div < 0.01:
-                    for t in ['bar_chart', 'line_graph', 'flowchart']: scores[t] += 4
-
-            return scores
+                uc = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
+                cd = uc / (h * w)
+                if cd > 0.1:
+                    for t in ['photograph', 'infographic', 'map']:
+                        if t in enhanced: enhanced[t] += 6
+                elif cd < 0.01:
+                    for t in ['bar_chart', 'line_graph']:
+                        if t in enhanced: enhanced[t] += 4
+            return enhanced
         except:
-            return base_scores
+            return scores
 
     def _classify_by_visual_analysis(self, image, description):
         try:
             img_array = np.array(image)
             h, w = img_array.shape[:2]
-            aspect_ratio = w / h
+            ar = w / h
 
             if len(img_array.shape) == 3:
-                unique_colors = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
-                color_div = unique_colors / (h * w)
+                uc = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
+                cd = uc / (h * w)
 
-                if color_div > 0.1:
-                    return self._format_result("photograph", 0.6, description)
-                elif aspect_ratio > 2:
-                    return self._format_result("timeline", 0.5, description)
-                elif 0.8 <= aspect_ratio <= 1.2:
-                    return self._format_result("chart_other", 0.5, description)
+                if cd > 0.1:
+                    classification = "photograph"
+                    confidence = 0.6
+                elif ar > 2:
+                    classification = "timeline"
+                    confidence = 0.5
+                elif 0.8 <= ar <= 1.2:
+                    classification = "chart_other"
+                    confidence = 0.5
                 else:
-                    return self._format_result("diagram_other", 0.4, description)
+                    classification = "diagram_other"
+                    confidence = 0.4
             else:
-                return self._format_result("diagram_other", 0.4, description)
+                classification = "diagram_other"
+                confidence = 0.4
+
+            self.confidence_score = confidence
+            return {
+                'classification': classification,
+                'confidence': confidence,
+                'description': f"Visual analysis suggests a {classification.replace('_', ' ')}",
+                'details': {
+                    'visual_elements': ['visual content'],
+                    'analysis_method': 'Fallback visual analysis'
+                },
+                'reasoning': f"No matching description, classified by aspect ratio {ar:.2f}"
+            }
         except:
             return self._fallback_classification()
 
     def _generate_description(self, classification, original_description):
-        descriptions = {
-            'bar_chart': 'A bar chart showing data with rectangular bars',
-            'pie_chart': 'A pie chart displaying data as sectors of a circle',
-            'line_graph': 'A line graph showing trends or changes over time',
-            'scatter_plot': 'A scatter plot showing the relationship between variables',
-            'timeline': 'A timeline showing events in chronological order',
-            'table': 'A table organizing data in rows and columns',
-            'photograph': 'A photographic image of real-world content'
-        }
-        base = descriptions.get(classification, f"A {classification.replace('_', ' ')}")
-        return f"{base}. {original_description}" if original_description not in ["visual content", "image with visual elements"] else base
+        readable = classification.replace("_", " ")
+        if original_description and original_description not in ["visual content", "image with visual elements"]:
+            return f"{readable.title()}. {original_description}"
+        return readable.title()
 
     def _extract_visual_elements(self, description, classification):
         elements = []
         if 'chart' in classification or 'graph' in classification:
-            elements += ['data visualization', 'axes', 'labels']
+            elements.extend(['data visualization', 'axes', 'labels'])
         elif 'diagram' in classification:
-            elements += ['shapes', 'connections', 'text']
+            elements.extend(['shapes', 'connectors'])
         elif classification == 'photograph':
-            elements += ['real objects', 'natural lighting']
-        elif classification == 'table':
-            elements += ['rows', 'columns', 'grid']
-
+            elements.extend(['real objects', 'natural lighting'])
         if description:
-            desc = description.lower()
-            if any(w in desc for w in ['color', 'bright', 'dark']): elements.append('varied colors')
-            if any(w in desc for w in ['text', 'label', 'title']): elements.append('text content')
-            if any(w in desc for w in ['line', 'curve', 'edge']): elements.append('linear elements')
-
+            desc_lower = description.lower()
+            if 'text' in desc_lower: elements.append('text content')
+            if 'color' in desc_lower: elements.append('varied colors')
+            if 'line' in desc_lower: elements.append('linear elements')
         return elements[:5] if elements else ['visual content']
-
-    def _format_result(self, classification, confidence, desc):
-        self.confidence_score = confidence
-        return {
-            'classification': classification,
-            'confidence': confidence,
-            'description': self._generate_description(classification, desc),
-            'details': {
-                'visual_elements': ['visual content'],
-                'analysis_method': 'Visual characteristics analysis'
-            },
-            'reasoning': f"Classified based on visual properties"
-        }
-
-    def _map_to_label(self, category):
-        mapping = {
-            "bar_chart": "📊 Bar Chart",
-            "line_graph": "📈 Line Graph",
-            "pie_chart": "🟢 Pie Chart",
-            "scatter_plot": "🔵 Scatter Plot",
-            "timeline": "⏰ Timeline",
-            "photograph": "📷 Photograph",
-            "table": "📋 Table",
-            "map": "🗺️ Map",
-            "flowchart": "📐 Flowchart",
-            "scientific_diagram": "📐 Scientific Diagram",
-            "diagram_other": "📐 Other Diagram",
-            "chart_other": "📊 Other Chart",
-            "infographic": "🖼️ Infographic",
-            "logo": "🏷️ Logo",
-            "screenshot": "💻 Screenshot",
-            "engineering_diagram": "📐 Engineering Diagram",
-            "network_diagram": "🔗 Network Diagram",
-            "organizational_chart": "📋 Organizational Chart",
-            "floor_plan": "📐 Floor Plan",
-            "box_plot": "📦 Box Plot",
-            "heatmap": "🌡️ Heatmap",
-            "histogram": "📊 Histogram",
-            "medical_diagram": "🩺 Medical Diagram",
-            "unknown": "❓ Unknown"
-        }
-        return mapping.get(category, "📐 Other Diagram")
-
-    def get_confidence(self):
-        return self.confidence_score
 
     def _fallback_classification(self):
         self.confidence_score = 0.3
         return {
-            "type": "❓ Unknown",
-            "confidence": 30.0,
-            "description": "Could not classify figure reliably",
-            "reasoning": "Classification failed, using fallback method",
-            "details": {
-                "visual_elements": ['visual content'],
-                "analysis_method": "Fallback classification"
-            }
+            'classification': 'unknown',
+            'confidence': 0.3,
+            'description': 'Could not classify figure reliably',
+            'details': {
+                'visual_elements': ['visual content'],
+                'analysis_method': 'Fallback classification'
+            },
+            'reasoning': 'No meaningful description or features available'
         }
+
+    def get_confidence(self):
+        return self.confidence_score
