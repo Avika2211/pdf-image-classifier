@@ -1,14 +1,15 @@
 import os
 import json
 import logging
+import base64
 import io
 import time
 import random
 import numpy as np
 import streamlit as st
 from PIL import Image
-from google.generativeai import GenerativeModel, configure, Part, GenerationConfig
-
+from google.generativeai import GenerativeModel, configure
+from google.generativeai.types import Part, GenerateContentConfig
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
