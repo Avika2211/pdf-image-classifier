@@ -8,16 +8,16 @@ import random
 import numpy as np
 import streamlit as st
 from PIL import Image
-from google import genai
-from google.genai import types
-from google.generativeai import GenerativeModel
+from google.generativeai import GenerativeModel, configure
+from google.generativeai.types import Part, GenerateContentConfig
 
 class AIFigureClassifier:
     """AI-powered figure classifier using Google Gemini."""
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = genai.Client(api_key=st.secrets["google_ai"]["api_key"])
+        configure(api_key=st.secrets["google_ai"]["api_key"])
+        self.model = GenerativeModel("gemini-1.5-flash")  # You can use "gemini-1.5-pro" too
         self.confidence_score = 0.0
 
         self.figure_categories = {
@@ -60,15 +60,14 @@ class AIFigureClassifier:
 
                 prompt = self._create_classification_prompt()
 
-                response = self.client.models.generate_content(
-                    model="gemini-2.0-flash-exp",
-                    contents=[
-                        types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                response = self.model.generate_content(
+                    [
+                        Part.from_data(data=image_bytes, mime_type="image/png"),
                         prompt
                     ],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                    ),
+                    generation_config=GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
                 )
 
                 if response.text:
@@ -102,9 +101,6 @@ class AIFigureClassifier:
                     return self._fallback_classification(image)
 
         return self._fallback_classification(image)
-
-    def get_confidence(self):
-        return self.confidence_score
 
     def _create_classification_prompt(self):
         categories_text = "\n".join([f"- {key}: {desc}" for key, desc in self.figure_categories.items()])
@@ -215,6 +211,9 @@ class AIFigureClassifier:
                 'reasoning': f'Fallback analysis failed: {str(e)}'
             }
 
+    def get_confidence(self):
+        return self.confidence_score
+
     def get_supported_categories(self):
         return self.figure_categories
 
@@ -225,7 +224,6 @@ class AIFigureClassifier:
         for i, image in enumerate(images):
             result = self.classify_figure(image)
             results.append(result)
-
             if progress_callback:
                 progress_callback(i + 1, total)
 
