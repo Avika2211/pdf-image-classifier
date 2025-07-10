@@ -63,10 +63,10 @@ class AIFigureClassifier:
             tag, confidence, desc, reason = self._parse_response(response)
 
         return {
-            "type": tag,
-            "confidence": confidence,
-            "description": desc,
-            "reasoning": reason,
+            fig_type = result.get("type", "Unknown")
+            confidence = result.get("confidence", 0.0)
+            description = result.get("description", "")
+            reasoning = result.get("reasoning", "")
         }
 
     def _image_to_bytes(self, image: Image.Image) -> bytes:
