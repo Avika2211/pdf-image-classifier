@@ -46,7 +46,7 @@ class AIFigureClassifier:
             "Also describe the layout and visual structure in one line."
         )
 
-    def classify(self, image: Image.Image) -> dict:
+    def classify_figure(self, image: Image.Image) -> dict:
         image_bytes = self._image_to_bytes(image)
         image_hash = get_image_hash(image_bytes)
 
